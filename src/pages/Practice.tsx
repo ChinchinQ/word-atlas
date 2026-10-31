@@ -57,7 +57,7 @@ export function Practice() {
   if (round) return mode === "repeat" ? <RepeatRound key={round.key} entries={round.entries} onExit={() => setRound(null)} onAgain={start} /> : <TypingRound key={round.key} mode={mode} entries={round.entries} onExit={() => setRound(null)} onAgain={start} />;
 
   const best = mode === "repeat" ? 0 : progress.typing.filter((t) => t.mode === mode).reduce((m, t) => Math.max(m, t.wpm), 0);
-  const pronunciationSkipped = progress.pronunciation.reduce((total, round) => total + round.skipped, 0);
+  const bestPronunciation = progress.pronunciation.reduce((current, round) => Math.max(current, round.bestPercent), 0);
   return (
     <div className="page practice">
       <header className="page-head">
@@ -102,18 +102,14 @@ export function Practice() {
             <>
               <dl className="mini-stats">
                 <div>
-                  <dt>练习目标</dt>
+                  <dt>最佳跟读</dt>
                   <dd>
-                    60<small>%</small>
+                    {bestPronunciation}<small>%</small>
                   </dd>
                 </div>
                 <div>
                   <dt>完成轮次</dt>
                   <dd>{progress.pronunciation.length}</dd>
-                </div>
-                <div>
-                  <dt>已跳过</dt>
-                  <dd>{pronunciationSkipped}</dd>
                 </div>
               </dl>
               <p className="muted">60% 是可调整的初始练习规则。没有达到时也可以跳过本句。</p>
@@ -283,7 +279,6 @@ function TypingRound({ mode, entries, onExit, onAgain }: { mode: TypingMode; ent
 }
 
 type RepeatState = "idle" | "recording" | "assessing" | "result" | "error";
-type RepeatTotals = { passed: number; skipped: number; attempts: number };
 
 const MOCK_RECORDING_LIMIT_SECONDS = 15;
 
@@ -309,8 +304,8 @@ function RepeatRound({ entries, onExit, onAgain }: { entries: Entry[]; onExit: (
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
   const request = useRef<AbortController | null>(null);
-  const totalsRef = useRef<RepeatTotals>({ passed: 0, skipped: 0, attempts: 0 });
-  const [totals, setTotals] = useState(totalsRef.current);
+  const bestPercentRef = useRef(0);
+  const [bestPercent, setBestPercent] = useState(0);
   const entry = entries[i];
   const example = entry.ex[0];
 
@@ -329,8 +324,6 @@ function RepeatRound({ entries, onExit, onAgain }: { entries: Entry[]; onExit: (
 
   const stopAndAssess = useCallback(async () => {
     cancelRequest();
-    totalsRef.current = { ...totalsRef.current, attempts: totalsRef.current.attempts + 1 };
-    setTotals(totalsRef.current);
     const controller = new AbortController();
     request.current = controller;
     setState("assessing");
@@ -341,6 +334,11 @@ function RepeatRound({ entries, onExit, onAgain }: { entries: Entry[]; onExit: (
         signal: controller.signal,
       });
       if (controller.signal.aborted) return;
+      const score = roundScore(result.words);
+      if (score.computable && score.percent > bestPercentRef.current) {
+        bestPercentRef.current = score.percent;
+        setBestPercent(score.percent);
+      }
       setAssessment(result);
       setState("result");
     } catch (caught) {
@@ -381,16 +379,13 @@ function RepeatRound({ entries, onExit, onAgain }: { entries: Entry[]; onExit: (
 
   const cancelRecording = () => resetItem();
 
-  const advance = (outcome: "passed" | "skipped") => {
-    const nextTotals = { ...totalsRef.current, [outcome]: totalsRef.current[outcome] + 1 };
-    totalsRef.current = nextTotals;
-    setTotals(nextTotals);
+  const advance = () => {
     if (i + 1 >= entries.length) {
       cancelRequest();
       stopAudio();
       store.progress((progress) => ({
         ...progress,
-        pronunciation: [...progress.pronunciation, { at: Date.now(), items: entries.length, ...nextTotals }].slice(-500),
+        pronunciation: [...progress.pronunciation, { at: Date.now(), items: entries.length, bestPercent: bestPercentRef.current }].slice(-500),
       }));
       setDone(true);
       return;
@@ -407,10 +402,8 @@ function RepeatRound({ entries, onExit, onAgain }: { entries: Entry[]; onExit: (
           <h1 className="display">
             {entries.length} <small>句</small>
           </h1>
-          <p className="lede">
-            达到目标 {totals.passed} 句 · 跳过 {totals.skipped} 句 · 尝试 {totals.attempts} 次
-          </p>
-          <p className="muted">只在本机保存以上计数，没有保存音频或评测详情，也没有调用麦克风或 Azure。</p>
+          <p className="lede">本轮最佳跟读 {bestPercent}%</p>
+          <p className="muted">只在本机保存本轮最佳百分比，没有保存音频或评测详情，也没有调用麦克风或 Azure。</p>
           <div className="summary-actions">
             <button className="btn btn-ghost" onClick={onExit}>
               返回
@@ -538,11 +531,11 @@ function RepeatRound({ entries, onExit, onAgain }: { entries: Entry[]; onExit: (
               <button className={`btn ${progress?.passed ? "btn-ghost" : "btn-primary"}`} onClick={resetItem}>
                 <RotateCcw size={16} /> 重新跟读
               </button>
-              <button className="btn btn-ghost" onClick={() => advance("skipped")}>
+              <button className="btn btn-ghost" onClick={advance}>
                 <SkipForward size={16} /> 跳过本句
               </button>
               {progress?.passed && (
-                <button className="btn btn-primary btn-xl" onClick={() => advance("passed")}>
+                <button className="btn btn-primary btn-xl" onClick={advance}>
                   下一句
                 </button>
               )}
@@ -551,7 +544,7 @@ function RepeatRound({ entries, onExit, onAgain }: { entries: Entry[]; onExit: (
         )}
 
         {state !== "result" && state !== "recording" && state !== "assessing" && (
-          <button className="link repeat-skip" onClick={() => advance("skipped")}>
+          <button className="link repeat-skip" onClick={advance}>
             <SkipForward size={15} /> 跳过本句
           </button>
         )}

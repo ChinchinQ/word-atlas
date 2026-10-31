@@ -37,9 +37,7 @@ export interface TypingRound {
 export interface PronunciationRoundStat {
   at: number;
   items: number;
-  passed: number;
-  skipped: number;
-  attempts: number;
+  bestPercent: number;
 }
 
 export interface Progress {
@@ -165,7 +163,7 @@ export function sanitizeProgress(v: unknown, datasetId: string): Progress {
     out.pronunciation = v.pronunciation
       .filter(
         (r): r is PronunciationRoundStat =>
-          isObj(r) && num(r.at, 0) && num(r.items, 0, 100) && num(r.passed, 0, 100) && num(r.skipped, 0, 100) && num(r.attempts, 0, 1000) && (r.passed as number) + (r.skipped as number) === r.items,
+          isObj(r) && num(r.at, 0) && num(r.items, 0, 100) && num(r.bestPercent, 0, 100),
       )
       .slice(-500);
   const s = v.session;
