@@ -463,66 +463,68 @@ function RepeatRound({ entries, onExit, onAgain }: { entries: Entry[]; onExit: (
           </button>
         </div>
 
-        <div className="repeat-interaction" aria-live="polite">
-          {state === "idle" && (
-            <>
-              <button className="record-button" onClick={begin} aria-label="开始模拟跟读录音">
-                <Mic size={30} />
-              </button>
-              <div>
-                <h2>准备好后，开始跟读</h2>
-                <p>这是交互预览，不会使用你的麦克风。</p>
-              </div>
-            </>
-          )}
-          {state === "recording" && (
-            <>
-              <div className="record-button is-recording" aria-hidden="true">
-                <Mic size={30} />
-              </div>
-              <div>
-                <h2>正在模拟录音 · {formatDuration(elapsed)}</h2>
-                <p>读完后手动停止，最长 {MOCK_RECORDING_LIMIT_SECONDS} 秒。</p>
-              </div>
-              <div className="repeat-inline-actions">
-                <button className="btn btn-primary" onClick={() => void stopAndAssess()}>
-                  <Square size={15} fill="currentColor" /> 停止并分析
+        {state !== "result" && (
+          <div className="repeat-interaction" aria-live="polite">
+            {state === "idle" && (
+              <>
+                <button className="record-button" onClick={begin} aria-label="开始模拟跟读录音">
+                  <Mic size={30} />
                 </button>
+                <div>
+                  <h2>准备好后，开始跟读</h2>
+                  <p>这是交互预览，不会使用你的麦克风。</p>
+                </div>
+              </>
+            )}
+            {state === "recording" && (
+              <>
+                <div className="record-button is-recording" aria-hidden="true">
+                  <Mic size={30} />
+                </div>
+                <div>
+                  <h2>正在模拟录音 · {formatDuration(elapsed)}</h2>
+                  <p>读完后手动停止，最长 {MOCK_RECORDING_LIMIT_SECONDS} 秒。</p>
+                </div>
+                <div className="repeat-inline-actions">
+                  <button className="btn btn-primary" onClick={() => void stopAndAssess()}>
+                    <Square size={15} fill="currentColor" /> 停止并分析
+                  </button>
+                  <button className="btn btn-ghost" onClick={cancelRecording}>
+                    <X size={16} /> 取消
+                  </button>
+                </div>
+              </>
+            )}
+            {state === "assessing" && (
+              <>
+                <div className="record-button">
+                  <LoaderCircle className="repeat-spinner" size={30} />
+                </div>
+                <div>
+                  <h2>正在分析发音…</h2>
+                  <p>Mock 服务正在生成示例结果。</p>
+                </div>
                 <button className="btn btn-ghost" onClick={cancelRecording}>
-                  <X size={16} /> 取消
+                  取消
                 </button>
-              </div>
-            </>
-          )}
-          {state === "assessing" && (
-            <>
-              <div className="record-button">
-                <LoaderCircle className="repeat-spinner" size={30} />
-              </div>
-              <div>
-                <h2>正在分析发音…</h2>
-                <p>Mock 服务正在生成示例结果。</p>
-              </div>
-              <button className="btn btn-ghost" onClick={cancelRecording}>
-                取消
-              </button>
-            </>
-          )}
-          {state === "error" && (
-            <>
-              <div className="record-button is-error">
-                <X size={30} />
-              </div>
-              <div>
-                <h2>这次没有完成评测</h2>
-                <p>{error}</p>
-              </div>
-              <button className="btn btn-primary" onClick={begin}>
-                <RotateCcw size={16} /> 重试
-              </button>
-            </>
-          )}
-        </div>
+              </>
+            )}
+            {state === "error" && (
+              <>
+                <div className="record-button is-error">
+                  <X size={30} />
+                </div>
+                <div>
+                  <h2>这次没有完成评测</h2>
+                  <p>{error}</p>
+                </div>
+                <button className="btn btn-primary" onClick={begin}>
+                  <RotateCcw size={16} /> 重试
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         {state === "result" && assessment && (
           <>
