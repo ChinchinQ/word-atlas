@@ -34,6 +34,14 @@ export interface TypingRound {
   accuracy: number;
 }
 
+export interface PronunciationRoundStat {
+  at: number;
+  items: number;
+  passed: number;
+  skipped: number;
+  attempts: number;
+}
+
 export interface Progress {
   version: 2;
   datasetId: string;
@@ -41,6 +49,7 @@ export interface Progress {
   bookmarks: string[];
   days: Record<string, DayStat>;
   typing: TypingRound[];
+  pronunciation: PronunciationRoundStat[];
   session: ActiveSession | null;
   /** Rolling list of recent mistakes, newest first. */
   mistakes: string[];
@@ -85,6 +94,7 @@ export const emptyProgress = (datasetId: string): Progress => ({
   bookmarks: [],
   days: {},
   typing: [],
+  pronunciation: [],
   session: null,
   mistakes: [],
 });
@@ -149,6 +159,13 @@ export function sanitizeProgress(v: unknown, datasetId: string): Progress {
       .filter(
         (t): t is TypingRound =>
           isObj(t) && num(t.at, 0) && ["word", "sentence", "dictation"].includes(t.mode as string) && num(t.items, 0) && num(t.wpm, 0, 400) && num(t.accuracy, 0, 100),
+      )
+      .slice(-500);
+  if (Array.isArray(v.pronunciation))
+    out.pronunciation = v.pronunciation
+      .filter(
+        (r): r is PronunciationRoundStat =>
+          isObj(r) && num(r.at, 0) && num(r.items, 0, 100) && num(r.passed, 0, 100) && num(r.skipped, 0, 100) && num(r.attempts, 0, 1000) && (r.passed as number) + (r.skipped as number) === r.items,
       )
       .slice(-500);
   const s = v.session;
