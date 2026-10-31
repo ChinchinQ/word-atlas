@@ -1,22 +1,28 @@
-import { Headphones, Keyboard, RotateCcw, Type } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Headphones, Keyboard, LoaderCircle, Mic, RotateCcw, SkipForward, Square, Type, Volume2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { prefetch, useAtlas } from "../atlas/context";
 import type { Entry } from "../atlas/types";
 import { play, stopAudio } from "../lib/audio";
 import { cue } from "../lib/sound";
 import { hashSeed, shuffle } from "../lib/text";
 import { clean, correctCharacterCount, same, typingDelta, typingMetrics } from "../lib/typing";
+import { createMockPronunciationService, type MockScenario } from "../pronunciation/mockService";
+import { roundScore } from "../pronunciation/scoring";
+import type { PronunciationAssessment } from "../pronunciation/types";
 import { store, useStore } from "../store/store";
 import { AmbiencePicker } from "../ui/Ambience";
 import { Illustration } from "../ui/Illustration";
+import { PronunciationFeedback } from "../ui/PronunciationFeedback";
 
-type Mode = "word" | "sentence" | "dictation";
+type TypingMode = "word" | "sentence" | "dictation";
+type Mode = TypingMode | "repeat";
 type Source = "recent" | "mistakes" | "saved" | "path";
 
 const MODES: [Mode, string, string, typeof Type][] = [
   ["word", "单词", "看图写出单词", Type],
   ["sentence", "例句", "照着抄写，练出手感", Keyboard],
   ["dictation", "听写", "只听声音，写下整句", Headphones],
+  ["repeat", "跟读", "听一句，然后跟着读", Mic],
 ];
 const SOURCES: [Source, string][] = [
   ["recent", "最近学过"],
@@ -48,15 +54,16 @@ export function Practice() {
     if (entries.length) setRound({ entries, key: Date.now() });
   };
 
-  if (round) return <TypingRound key={round.key} mode={mode} entries={round.entries} onExit={() => setRound(null)} onAgain={start} />;
+  if (round) return mode === "repeat" ? <RepeatRound key={round.key} entries={round.entries} onExit={() => setRound(null)} onAgain={start} /> : <TypingRound key={round.key} mode={mode} entries={round.entries} onExit={() => setRound(null)} onAgain={start} />;
 
-  const best = progress.typing.filter((t) => t.mode === mode).reduce((m, t) => Math.max(m, t.wpm), 0);
+  const best = mode === "repeat" ? 0 : progress.typing.filter((t) => t.mode === mode).reduce((m, t) => Math.max(m, t.wpm), 0);
+  const bestPronunciation = progress.pronunciation.reduce((current, round) => Math.max(current, round.bestPercent), 0);
   return (
     <div className="page practice">
       <header className="page-head">
-        <p className="eyebrow">练习 · Typing Studio</p>
-        <h1 className="display">让手，也记住它们。</h1>
-        <p className="lede">打字只练拼写和手感，不会改动记忆进度。</p>
+        <p className="eyebrow">练习 · {mode === "repeat" ? "Speaking Studio" : "Typing Studio"}</p>
+        <h1 className="display">{mode === "repeat" ? "开口，让句子变得熟悉。" : "让手，也记住它们。"}</h1>
+        <p className="lede">{mode === "repeat" ? "先用 Mock 评测确认跟读体验，不会调用麦克风或 Azure。" : "打字只练拼写和手感，不会改动记忆进度。"}</p>
       </header>
       <div className="practice-grid">
         <section className="panel">
@@ -90,28 +97,48 @@ export function Practice() {
           </button>
         </section>
         <section className="panel practice-side">
-          <img src={`${import.meta.env.BASE_URL}brand/${mode === "dictation" ? "listen" : "typing"}.webp`} alt="" />
-          <dl className="mini-stats">
-            <div>
-              <dt>最佳速度</dt>
-              <dd>
-                {best}
-                <small>WPM</small>
-              </dd>
-            </div>
-            <div>
-              <dt>完成轮次</dt>
-              <dd>{progress.typing.length}</dd>
-            </div>
-          </dl>
-          <p className="muted">WPM 按标准每 5 个字符计 1 词，只统计正确输入。</p>
+          <img src={`${import.meta.env.BASE_URL}brand/${mode === "dictation" || mode === "repeat" ? "listen" : "typing"}.webp`} alt="" />
+          {mode === "repeat" ? (
+            <>
+              <dl className="mini-stats">
+                <div>
+                  <dt>最佳跟读</dt>
+                  <dd>
+                    {bestPronunciation}<small>%</small>
+                  </dd>
+                </div>
+                <div>
+                  <dt>完成轮次</dt>
+                  <dd>{progress.pronunciation.length}</dd>
+                </div>
+              </dl>
+              <p className="muted">60% 是可调整的初始练习规则。没有达到时也可以跳过本句。</p>
+            </>
+          ) : (
+            <>
+              <dl className="mini-stats">
+                <div>
+                  <dt>最佳速度</dt>
+                  <dd>
+                    {best}
+                    <small>WPM</small>
+                  </dd>
+                </div>
+                <div>
+                  <dt>完成轮次</dt>
+                  <dd>{progress.typing.length}</dd>
+                </div>
+              </dl>
+              <p className="muted">WPM 按标准每 5 个字符计 1 词，只统计正确输入。</p>
+            </>
+          )}
         </section>
       </div>
     </div>
   );
 }
 
-function TypingRound({ mode, entries, onExit, onAgain }: { mode: Mode; entries: Entry[]; onExit: () => void; onAgain: () => void }) {
+function TypingRound({ mode, entries, onExit, onAgain }: { mode: TypingMode; entries: Entry[]; onExit: () => void; onAgain: () => void }) {
   const atlas = useAtlas();
   const settings = useStore((s) => s.settings);
   const [i, setI] = useState(0);
@@ -246,6 +273,283 @@ function TypingRound({ mode, entries, onExit, onAgain }: { mode: Mode; entries: 
         <p className="muted typing-help">
           {mode === "dictation" ? "听不清可以点「再听一遍」。" : "直接开始输入，全部正确后自动进入下一项。"} 第 {i + 1}/{entries.length} 项
         </p>
+      </section>
+    </div>
+  );
+}
+
+type RepeatState = "idle" | "recording" | "assessing" | "result" | "error";
+
+const MOCK_RECORDING_LIMIT_SECONDS = 15;
+
+const MOCK_SCENARIOS: [MockScenario, string][] = [
+  ["pass", "通过示例"],
+  ["retry", "未通过示例"],
+  ["missing", "缺失数据示例"],
+  ["error", "错误示例"],
+];
+
+function formatDuration(seconds: number) {
+  return `0:${String(seconds).padStart(2, "0")}`;
+}
+
+function RepeatRound({ entries, onExit, onAgain }: { entries: Entry[]; onExit: () => void; onAgain: () => void }) {
+  const atlas = useAtlas();
+  const settings = useStore((s) => s.settings);
+  const [i, setI] = useState(0);
+  const [state, setState] = useState<RepeatState>("idle");
+  const [scenario, setScenario] = useState<MockScenario>("pass");
+  const [elapsed, setElapsed] = useState(0);
+  const [assessment, setAssessment] = useState<PronunciationAssessment | null>(null);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+  const request = useRef<AbortController | null>(null);
+  const bestPercentRef = useRef(0);
+  const [bestPercent, setBestPercent] = useState(0);
+  const entry = entries[i];
+  const example = entry.ex[0];
+
+  const cancelRequest = useCallback(() => {
+    request.current?.abort();
+    request.current = null;
+  }, []);
+
+  const resetItem = useCallback(() => {
+    cancelRequest();
+    setState("idle");
+    setElapsed(0);
+    setAssessment(null);
+    setError("");
+  }, [cancelRequest]);
+
+  const stopAndAssess = useCallback(async () => {
+    cancelRequest();
+    const controller = new AbortController();
+    request.current = controller;
+    setState("assessing");
+    setError("");
+    try {
+      const result = await createMockPronunciationService(scenario).assess({
+        referenceText: example.en,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      const score = roundScore(result.words);
+      if (score.computable && score.percent > bestPercentRef.current) {
+        bestPercentRef.current = score.percent;
+        setBestPercent(score.percent);
+      }
+      setAssessment(result);
+      setState("result");
+    } catch (caught) {
+      if ((caught as Error).name === "AbortError") return;
+      setError(caught instanceof Error ? caught.message : "Mock 评测失败，请重试。");
+      setState("error");
+    } finally {
+      if (request.current === controller) request.current = null;
+    }
+  }, [cancelRequest, example.en, scenario]);
+
+  useEffect(() => {
+    if (state !== "recording") return;
+    const timer = window.setInterval(() => setElapsed((value) => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [state]);
+
+  useEffect(() => {
+    if (state === "recording" && elapsed >= MOCK_RECORDING_LIMIT_SECONDS) void stopAndAssess();
+  }, [elapsed, state, stopAndAssess]);
+
+  useEffect(
+    () => () => {
+      cancelRequest();
+      stopAudio();
+    },
+    [cancelRequest],
+  );
+
+  const begin = () => {
+    stopAudio();
+    cancelRequest();
+    setElapsed(0);
+    setAssessment(null);
+    setError("");
+    setState("recording");
+  };
+
+  const cancelRecording = () => resetItem();
+
+  const advance = () => {
+    if (i + 1 >= entries.length) {
+      cancelRequest();
+      stopAudio();
+      store.progress((progress) => ({
+        ...progress,
+        pronunciation: [...progress.pronunciation, { at: Date.now(), items: entries.length, bestPercent: bestPercentRef.current }].slice(-500),
+      }));
+      setDone(true);
+      return;
+    }
+    setI((value) => value + 1);
+    resetItem();
+  };
+
+  if (done)
+    return (
+      <div className="page practice">
+        <section className="panel typing-done">
+          <p className="eyebrow">Mock 跟读预览完成</p>
+          <h1 className="display">
+            {entries.length} <small>句</small>
+          </h1>
+          <p className="lede">本轮最佳跟读 {bestPercent}%</p>
+          <p className="muted">只在本机保存本轮最佳百分比，没有保存音频或评测详情，也没有调用麦克风或 Azure。</p>
+          <div className="summary-actions">
+            <button className="btn btn-ghost" onClick={onExit}>
+              返回
+            </button>
+            <button className="btn btn-primary btn-xl" onClick={onAgain} autoFocus>
+              <RotateCcw size={18} /> 再来一轮
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+
+  const progress = assessment ? roundScore(assessment.words) : null;
+
+  return (
+    <div className="page practice repeat-practice">
+      <header className="typing-top">
+        <button className="btn btn-ghost" onClick={onExit}>
+          结束
+        </button>
+        <AmbiencePicker />
+        <div className="learn-progress">
+          <span style={{ width: `${(i / entries.length) * 100}%` }} />
+        </div>
+        <span className="typing-meter">
+          第 <b>{i + 1}</b> / {entries.length} 句
+        </span>
+      </header>
+
+      <section className="repeat-stage">
+        <div className="repeat-preview-bar">
+          <span className="mock-badge">Mock 预览</span>
+          <label>
+            评测场景
+            <select
+              value={scenario}
+              onChange={(event) => {
+                setScenario(event.target.value as MockScenario);
+                resetItem();
+              }}
+              disabled={state === "recording" || state === "assessing"}
+            >
+              {MOCK_SCENARIOS.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="repeat-reference">
+          <p className="repeat-translation">{example.zh}</p>
+          <h1 lang="en">{example.en}</h1>
+          <button className="btn btn-ghost" onClick={() => play(atlas.audio(entry, "ex"), example.en, settings.accent)} disabled={state === "recording" || state === "assessing"}>
+            <Volume2 size={17} /> 听原音
+          </button>
+        </div>
+
+        {state !== "result" && (
+          <div className="repeat-interaction" aria-live="polite">
+            {state === "idle" && (
+              <>
+                <button className="record-button" onClick={begin} aria-label="开始模拟跟读录音">
+                  <Mic size={30} />
+                </button>
+                <div>
+                  <h2>准备好后，开始跟读</h2>
+                  <p>这是交互预览，不会使用你的麦克风。</p>
+                </div>
+              </>
+            )}
+            {state === "recording" && (
+              <>
+                <div className="record-button is-recording" aria-hidden="true">
+                  <Mic size={30} />
+                </div>
+                <div>
+                  <h2>正在模拟录音 · {formatDuration(elapsed)}</h2>
+                  <p>读完后手动停止，最长 {MOCK_RECORDING_LIMIT_SECONDS} 秒。</p>
+                </div>
+                <div className="repeat-inline-actions">
+                  <button className="btn btn-primary" onClick={() => void stopAndAssess()}>
+                    <Square size={15} fill="currentColor" /> 停止并分析
+                  </button>
+                  <button className="btn btn-ghost" onClick={cancelRecording}>
+                    <X size={16} /> 取消
+                  </button>
+                </div>
+              </>
+            )}
+            {state === "assessing" && (
+              <>
+                <div className="record-button">
+                  <LoaderCircle className="repeat-spinner" size={30} />
+                </div>
+                <div>
+                  <h2>正在分析发音…</h2>
+                  <p>Mock 服务正在生成示例结果。</p>
+                </div>
+                <button className="btn btn-ghost" onClick={cancelRecording}>
+                  取消
+                </button>
+              </>
+            )}
+            {state === "error" && (
+              <>
+                <div className="record-button is-error">
+                  <X size={30} />
+                </div>
+                <div>
+                  <h2>这次没有完成评测</h2>
+                  <p>{error}</p>
+                </div>
+                <button className="btn btn-primary" onClick={begin}>
+                  <RotateCcw size={16} /> 重试
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {state === "result" && assessment && (
+          <>
+            <PronunciationFeedback assessment={assessment} />
+            <div className="repeat-actions">
+              <button className={`btn ${progress?.passed ? "btn-ghost" : "btn-primary"}`} onClick={resetItem}>
+                <RotateCcw size={16} /> 重新跟读
+              </button>
+              <button className="btn btn-ghost" onClick={advance}>
+                <SkipForward size={16} /> 跳过本句
+              </button>
+              {progress?.passed && (
+                <button className="btn btn-primary btn-xl" onClick={advance}>
+                  下一句
+                </button>
+              )}
+            </div>
+          </>
+        )}
+
+        {state !== "result" && state !== "recording" && state !== "assessing" && (
+          <button className="link repeat-skip" onClick={advance}>
+            <SkipForward size={15} /> 跳过本句
+          </button>
+        )}
       </section>
     </div>
   );

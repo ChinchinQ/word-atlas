@@ -12,6 +12,10 @@ test("keeps valid progress and drops malformed records", () => {
       bookmarks: ["ok", 3],
       days: { "2026-10-25": { n: 1, r: 2, c: 1, t: 30 }, nope: { n: 1, r: 1, c: 1, t: 1 } },
       typing: [{ at: 1, mode: "word", items: 10, wpm: 40, accuracy: 98 }, { at: 1, mode: "hack", items: 1, wpm: 1, accuracy: 1 }],
+      pronunciation: [
+        { at: 2, items: 4, bestPercent: 75 },
+        { at: 2, items: 4, bestPercent: 120 },
+      ],
     },
     "word-atlas-open",
   );
@@ -19,6 +23,7 @@ test("keeps valid progress and drops malformed records", () => {
   assert.deepEqual(p.bookmarks, ["ok"]);
   assert.deepEqual(Object.keys(p.days), ["2026-10-25"]);
   assert.equal(p.typing.length, 1);
+  assert.deepEqual(p.pronunciation, [{ at: 2, items: 4, bestPercent: 75 }]);
 });
 
 test("rejects other versions and unknown settings", () => {
